@@ -36,6 +36,7 @@ from sklearn.base import clone, is_classifier
 from collections import defaultdict
 import warnings
 from stopit import threading_timeoutable, TimeoutException
+from statistics import mean
 
 
 def pick_two_individuals_eligible_for_crossover(population):
@@ -171,8 +172,18 @@ def initialize_stats_dict(individual):
     individual.statistics['predecessor'] = 'ROOT',
 
 
-def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
-                   stats=None, halloffame=None, verbose=0, per_generation_function=None):
+def _completely_dominates(best, other):
+    """Extension of deap.base.dominates which returns True if all objective
+    of *self* are strictly better than *other*.
+    """
+    for best_wvalue, other_wvalue in zip(best.fitness.wvalues, other.fitness.wvalues):
+        if best_wvalue <= other_wvalue:
+            return False
+
+    return True
+
+def eaMuPlusLambda(population, toolbox, cxpb, mutpb, ngen, stats=None, halloffame=None,
+                   verbose=0, per_generation_function=None):
     """This is the :math:`(\mu + \lambda)` evolutionary algorithm.
     :param population: A list of individuals.
     :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
@@ -182,7 +193,6 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
     :param cxpb: The probability that an offspring is produced by crossover.
     :param mutpb: The probability that an offspring is produced by mutation.
     :param ngen: The number of generation.
-    :param pbar: processing bar
     :param stats: A :class:`~deap.tools.Statistics` object that is updated
                   inplace, optional.
     :param halloffame: A :class:`~deap.tools.HallOfFame` object that will
@@ -217,6 +227,7 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
     registered in the toolbox. This algorithm uses the :func:`varOr`
     variation.
     """
+
     logbook = tools.Logbook()
     logbook.header = ['gen', 'nevals'] + (stats.fields if stats else [])
 
@@ -229,13 +240,32 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
     record = stats.compile(population) if stats is not None else {}
     logbook.record(gen=0, nevals=len(population), **record)
 
+    print(logbook.stream)
+
+    best_fitness_last_gen = logbook.chapters["fitness"].select("max")[-1]
+
+    # We increase in the fibonacci sequence. Note: 0 is skipped because this doesnt make sense for a poulation size
+    previous_sizes = [1, 1]
+
+    # The "golden ration". For fibonacci sequences.
+    phi = (1 + 5 ** 0.5) / 2
+
+    # For tracking the imporvement in fitness each generation
+    improvements = []
+
     # Begin the generational process
     for gen in range(1, ngen + 1):
         # after each population save a periodic pipeline
         if per_generation_function is not None:
             per_generation_function(gen)
+
+        current_pop_size = previous_sizes[-1]
+
+        # We're always adding the value 2 before in the fibonacci sequence, as the final element is the current_pop_size
+        offspring_size = previous_sizes[-2]  # Protect against the case at start of sequence with size 0
+
         # Vary the population
-        offspring = varOr(population, toolbox, lambda_, cxpb, mutpb)
+        offspring = varOr(population, toolbox, offspring_size, cxpb, mutpb)
 
 
         # Update generation statistic for all individuals which have invalid 'generation' stats
@@ -244,32 +274,32 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
             if ind.statistics['generation'] == 'INVALID':
                 ind.statistics['generation'] = gen
 
-        # Evaluate the individuals with an invalid fitness
-        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-
         offspring = toolbox.evaluate(offspring)
 
+        # Compute improvement over previous gen
+        best_fitness_this_gen = logbook.chapters["fitness"].select("max")[-1]
+        improvement = best_fitness_this_gen - best_fitness_last_gen
+        average_improvemenet = mean(improvements) if improvements else 1
+        improvements.append(improvement)
+
+        if improvement > average_improvemenet:
+            # Shrink population if we can
+            if len(previous_sizes) > 2:
+                previous_sizes.pop()  # Remove current size
+                next_population_size = previous_sizes[-1] # Retreat to previous pop size. Be careful not to go to zero
+            else:
+                # If we cant, then the minimum size is 1
+                next_population_size = 1
+        elif improvement > 0:
+            # Better, so keep population size
+            next_population_size = current_pop_size
+        else:
+            # No progress. So increase population size, as done in fibonacci sequence
+            next_population_size = previous_sizes[-2] + previous_sizes[-1]
+            previous_sizes.append(next_population_size)
+
         # Select the next generation population
-        population[:] = toolbox.select(population + offspring, mu)
-
-        # pbar process
-        if not pbar.disable:
-            # Print only the best individual fitness
-            if verbose == 2:
-                high_score = max([halloffame.keys[x].wvalues[1] for x in range(len(halloffame.keys))])
-                pbar.write('Generation {0} - Current best internal CV score: {1}'.format(gen, high_score))
-
-            # Print the entire Pareto front
-            elif verbose == 3:
-                pbar.write('Generation {} - Current Pareto front scores:'.format(gen))
-                for pipeline, pipeline_scores in zip(halloffame.items, reversed(halloffame.keys)):
-                    pbar.write('{}\t{}\t{}'.format(
-                            int(pipeline_scores.wvalues[0]),
-                            pipeline_scores.wvalues[1],
-                            pipeline
-                        )
-                    )
-                pbar.write('')
+        population[:] = toolbox.select(population + offspring, next_population_size)
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:
@@ -277,7 +307,11 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen, pbar,
 
         # Update the statistics with the new population
         record = stats.compile(population) if stats is not None else {}
-        logbook.record(gen=gen, nevals=len(invalid_ind), **record)
+        logbook.record(gen=gen, nevals=len(population), **record)
+
+        print(logbook.stream)
+
+        best_fitness_last_gen = best_fitness_this_gen
 
     return population, logbook
 

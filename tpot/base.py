@@ -107,7 +107,7 @@ if sys.platform.startswith('win'):
 class TPOTBase(BaseEstimator):
     """Automatically creates and optimizes machine learning pipelines using GP."""
 
-    def __init__(self, generations=100, population_size=100, offspring_size=None,
+    def __init__(self, generations=100, offspring_size=None,
                  mutation_rate=0.9, crossover_rate=0.1,
                  scoring=None, cv=5, subsample=1.0, n_jobs=1,
                  max_time_mins=None, max_eval_time_mins=5,
@@ -123,11 +123,6 @@ class TPOTBase(BaseEstimator):
             Number of iterations to the run pipeline optimization process.
             Generally, TPOT will work better when you give it more generations (and
             therefore time) to optimize the pipeline. TPOT will evaluate
-            POPULATION_SIZE + GENERATIONS x OFFSPRING_SIZE pipelines in total.
-        population_size: int, optional (default: 100)
-            Number of individuals to retain in the GP population every generation.
-            Generally, TPOT will work better when you give it more individuals
-            (and therefore time) to optimize the pipeline. TPOT will evaluate
             POPULATION_SIZE + GENERATIONS x OFFSPRING_SIZE pipelines in total.
         offspring_size: int, optional (default: None)
             Number of offspring to produce in each GP generation.
@@ -272,7 +267,6 @@ class TPOTBase(BaseEstimator):
         if self.__class__.__name__ == 'TPOTBase':
             raise RuntimeError('Do not instantiate the TPOTBase class directly; use TPOTRegressor or TPOTClassifier instead.')
 
-        self.population_size = population_size
         self.offspring_size = offspring_size
         self.generations = generations
         self.mutation_rate = mutation_rate
@@ -594,7 +588,6 @@ class TPOTBase(BaseEstimator):
             'copy': copy
         }
 
-        self._pbar = None
         # Specifies where to output the progress messages (default: sys.stdout).
         # Maybe open this API in future version of TPOT.(io.TextIOWrapper or io.StringIO)
         self._file = sys.stdout
@@ -694,7 +687,8 @@ class TPOTBase(BaseEstimator):
         if self._pop:
             pop = self._pop
         else:
-            pop = self._toolbox.population(n=self.population_size)
+            # We start with a single individual as the population and adapt this dynamically
+            pop = self._toolbox.population(n=1)
 
         def pareto_eq(ind1, ind2):
             """Determine whether two individuals are equal on the Pareto front.
@@ -719,20 +713,15 @@ class TPOTBase(BaseEstimator):
         if not self.warm_start or not self._pareto_front:
             self._pareto_front = tools.ParetoFront(similar=pareto_eq)
 
-        # Set lambda_ (offspring size in GP) equal to population_size by default
-        if not self.offspring_size:
-            self._lambda = self.population_size
-        else:
-            self._lambda = self.offspring_size
 
-        # Start the progress bar
-        if self.max_time_mins:
-            total_evals = self.population_size
-        else:
-            total_evals = self._lambda * self.generations + self.population_size
+        stats_fit = tools.Statistics(key=lambda ind: ind.fitness.values[1])
+        stats_size = tools.Statistics(key=lambda ind: ind.fitness.values[0])
 
-        self._pbar = tqdm(total=total_evals, unit='pipeline', leave=False,
-                          disable=not (self.verbosity >= 2), desc='Optimization Progress')
+        mstats = tools.MultiStatistics(fitness=stats_fit, complexity=stats_size)
+
+        mstats.register("min",  np.min)
+        mstats.register("max", np.max)
+        mstats.register("std", np.std)
 
         try:
             with warnings.catch_warnings():
@@ -741,12 +730,10 @@ class TPOTBase(BaseEstimator):
                 pop, _ = eaMuPlusLambda(
                     population=pop,
                     toolbox=self._toolbox,
-                    mu=self.population_size,
-                    lambda_=self._lambda,
                     cxpb=self.crossover_rate,
                     mutpb=self.mutation_rate,
                     ngen=self.generations,
-                    pbar=self._pbar,
+                    stats=mstats,
                     halloffame=self._pareto_front,
                     verbose=self.verbosity,
                     per_generation_function=self._check_periodic_pipeline
@@ -759,18 +746,12 @@ class TPOTBase(BaseEstimator):
         # Allow for certain exceptions to signal a premature fit() cancellation
         except (KeyboardInterrupt, SystemExit, StopIteration) as e:
             if self.verbosity > 0:
-                self._pbar.write('', file=self._file)
-                self._pbar.write('{}\nTPOT closed prematurely. Will use the current best pipeline.'.format(e),
-                                 file=self._file)
+                print('{}\nTPOT closed prematurely. Will use the current best pipeline.'.format(e), file=self._file)
         finally:
             # keep trying 10 times in case weird things happened like multiple CTRL+C or exceptions
             attempts = 10
             for attempt in range(attempts):
                 try:
-                    # Close the progress bar
-                    # Standard truthiness checks won't work for tqdm
-                    if not isinstance(self._pbar, type(None)):
-                        self._pbar.close()
 
                     self._update_top_pipeline()
                     self._summary_of_best_pipeline(features, target)
@@ -1318,10 +1299,6 @@ class TPOTBase(BaseEstimator):
         # Evaluate the individuals with an invalid fitness
         individuals = [ind for ind in population if not ind.fitness.valid]
 
-        # update pbar for valid individuals (with fitness values)
-        if self.verbosity > 0:
-            self._pbar.update(len(population)-len(individuals))
-
         operator_counts, eval_individuals_str, sklearn_pipeline_list, stats_dicts = self._preprocess_individuals(individuals)
 
         # Make the partial function that will be called below
@@ -1379,8 +1356,8 @@ class TPOTBase(BaseEstimator):
 
         except (KeyboardInterrupt, SystemExit, StopIteration) as e:
             if self.verbosity > 0:
-                self._pbar.write('', file=self._file)
-                self._pbar.write('{}\nTPOT closed during evaluation in one generation.\n'
+                print('', file=self._file)
+                print('{}\nTPOT closed during evaluation in one generation.\n'
                                     'WARNING: TPOT may not provide a good pipeline if TPOT is stopped/interrupted in a early generation.'.format(e),
                                  file=self._file)
             # number of individuals already evaluated in this generation
@@ -1431,9 +1408,7 @@ class TPOTBase(BaseEstimator):
         stats_dicts: dictionary
             A dict where 'key' is the string representation of an individual and 'value' is a dict containing statistics about the individual
         """
-        # update self._pbar.total
-        if not (self.max_time_mins is None) and not self._pbar.disable and self._pbar.total <= self._pbar.n:
-            self._pbar.total += self._lambda
+
         # Check we do not evaluate twice the same individual in one pass.
         _, unique_individual_indices = np.unique([str(ind) for ind in individuals], return_index=True)
         unique_individuals = [ind for i, ind in enumerate(individuals) if i in unique_individual_indices]
@@ -1524,24 +1499,7 @@ class TPOTBase(BaseEstimator):
                 raise ValueError('Scoring function does not return a float.')
 
     def _update_pbar(self, pbar_num=1, pbar_msg=None):
-        """Update self._pbar and error message during pipeline evaluation.
-
-        Parameters
-        ----------
-        pbar_num: int
-            How many pipelines has been processed
-        pbar_msg: None or string
-            Error message
-
-        Returns
-        -------
-        None
-        """
-        if not isinstance(self._pbar, type(None)):
-            if self.verbosity > 2 and pbar_msg is not None:
-                self._pbar.write(pbar_msg, file=self._file)
-            if not self._pbar.disable:
-                self._pbar.update(pbar_num)
+        pass
 
     @_pre_test
     def _mate_operator(self, ind1, ind2):
@@ -1693,8 +1651,7 @@ class TPOTBase(BaseEstimator):
         """
         self._update_pbar()
         if val == 'Timeout':
-            self._update_pbar(pbar_msg=('Skipped pipeline #{0} due to time out. '
-                                        'Continuing to the next pipeline.'.format(self._pbar.n)))
+            self._update_pbar(pbar_msg='Skipped pipeline #{0} due to time out. Continuing to the next pipeline.')
             result_score_list.append(-float('inf'))
         else:
             result_score_list.append(val)

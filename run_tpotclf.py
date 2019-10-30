@@ -14,7 +14,6 @@ if __name__ == "__main__":
         scoring="f1_weighted",
         n_jobs=args.cores,
         verbosity=2,
-        population_size=10000,
     )
 
     fn = partial(helpers.run_and_time_estimator, method)
