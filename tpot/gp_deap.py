@@ -182,16 +182,12 @@ def _completely_dominates(best, other):
 
     return True
 
-def eaMuPlusLambda(population, toolbox, cxpb, mutpb, ngen, stats=None, halloffame=None,
-                   verbose=0, per_generation_function=None):
+def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
+               verbose=0, per_generation_function=None):
     """This is the :math:`(\mu + \lambda)` evolutionary algorithm.
     :param population: A list of individuals.
     :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
                     operators.
-    :param mu: The number of individuals to select for the next generation.
-    :param lambda\_: The number of children to produce at each generation.
-    :param cxpb: The probability that an offspring is produced by crossover.
-    :param mutpb: The probability that an offspring is produced by mutation.
     :param ngen: The number of generation.
     :param stats: A :class:`~deap.tools.Statistics` object that is updated
                   inplace, optional.
@@ -253,6 +249,10 @@ def eaMuPlusLambda(population, toolbox, cxpb, mutpb, ngen, stats=None, halloffam
     # For tracking the imporvement in fitness each generation
     improvements = []
 
+    #Start of equal chance, and adjust as we go
+    mutpb = 0.5
+    cxpb = 0.5
+
     # Begin the generational process
     for gen in range(1, ngen + 1):
         # after each population save a periodic pipeline
@@ -300,6 +300,16 @@ def eaMuPlusLambda(population, toolbox, cxpb, mutpb, ngen, stats=None, halloffam
 
         # Select the next generation population
         population[:] = toolbox.select(population + offspring, next_population_size)
+
+        # Adjust crossover and mutation rates
+        fitness_std = logbook.chapters["fitness"].select("std")[-1]
+        max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
+        # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
+        # so we should have a high mutation rate.
+        mutpb = 1 - (fitness_std / max_std)
+
+        # Crossover just becomes the remainder
+        cxpb = 1 - mutpb
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:

@@ -76,7 +76,7 @@ from .config.classifier_sparse import classifier_config_sparse
 
 from .metrics import SCORERS
 from .gp_types import Output_Array
-from .gp_deap import eaMuPlusLambda, mutNodeReplacement, _wrapped_cross_val_score, cxOnePoint
+from .gp_deap import adaptiveEa, mutNodeReplacement, _wrapped_cross_val_score, cxOnePoint
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     from tqdm.autonotebook import tqdm
@@ -108,7 +108,6 @@ class TPOTBase(BaseEstimator):
     """Automatically creates and optimizes machine learning pipelines using GP."""
 
     def __init__(self, generations=100, offspring_size=None,
-                 mutation_rate=0.9, crossover_rate=0.1,
                  scoring=None, cv=5, subsample=1.0, n_jobs=1,
                  max_time_mins=None, max_eval_time_mins=5,
                  random_state=None, config_dict=None, template=None,
@@ -127,16 +126,6 @@ class TPOTBase(BaseEstimator):
         offspring_size: int, optional (default: None)
             Number of offspring to produce in each GP generation.
             By default, offspring_size = population_size.
-        mutation_rate: float, optional (default: 0.9)
-            Mutation rate for the genetic programming algorithm in the range [0.0, 1.0].
-            This parameter tells the GP algorithm how many pipelines to apply random
-            changes to every generation. We recommend using the default parameter unless
-            you understand how the mutation rate affects GP algorithms.
-        crossover_rate: float, optional (default: 0.1)
-            Crossover rate for the genetic programming algorithm in the range [0.0, 1.0].
-            This parameter tells the genetic programming algorithm how many pipelines to
-            "breed" every generation. We recommend using the default parameter unless you
-            understand how the mutation rate affects GP algorithms.
         scoring: string or callable, optional
             Function used to evaluate the quality of a given pipeline for the
             problem. By default, accuracy is used for classification problems and
@@ -269,8 +258,6 @@ class TPOTBase(BaseEstimator):
 
         self.offspring_size = offspring_size
         self.generations = generations
-        self.mutation_rate = mutation_rate
-        self.crossover_rate = crossover_rate
         self.scoring=scoring
         self.cv = cv
         self.subsample = subsample
@@ -575,10 +562,6 @@ class TPOTBase(BaseEstimator):
         if not self.disable_update_check:
             update_check('tpot', __version__)
 
-        if self.mutation_rate + self.crossover_rate > 1:
-            raise ValueError(
-                'The sum of the crossover and mutation probabilities must be <= 1.0.'
-            )
 
         self.operators_context = {
             'make_pipeline': make_pipeline,
@@ -727,11 +710,9 @@ class TPOTBase(BaseEstimator):
             with warnings.catch_warnings():
                 self._setup_memory()
                 warnings.simplefilter('ignore')
-                pop, _ = eaMuPlusLambda(
+                pop, _ = adaptiveEa(
                     population=pop,
                     toolbox=self._toolbox,
-                    cxpb=self.crossover_rate,
-                    mutpb=self.mutation_rate,
                     ngen=self.generations,
                     stats=mstats,
                     halloffame=self._pareto_front,
