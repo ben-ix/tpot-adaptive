@@ -661,8 +661,7 @@ class TPOTBase(BaseEstimator):
                 # We increase pop siz in the fibonacci sequence.  0 is skipped because this doesnt make sense for a poulation size
                 "previous_sizes": [1, 1],
                 "improvements": [],
-                "mutpb": 0.5,  # No preference for either to begin with
-                "cxpb": 0.5,  # No preference for either to begin with
+                "mutpb_rates": [0.5],  # 50:50 crossover/mutation to begin with (no preference). Tracks rates overtime
             }
 
 
@@ -841,6 +840,7 @@ class TPOTBase(BaseEstimator):
 
                 optimized_pipeline_str = self.clean_pipeline_string(self._optimized_pipeline)
                 print('Best pipeline:', optimized_pipeline_str)
+                print('Mutation rates:', self._param_dict["mutpb_rates"])
 
             # Store and fit the entire Pareto front as fitted models for convenience
             self.pareto_front_fitted_pipelines_ = {}

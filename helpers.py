@@ -107,7 +107,7 @@ def write_file(file, contents):
         pickle.dump(contents, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def run_kfold(k, dataX, dataY, fn_to_run, seed, classification, num_folds=2):
+def kfold_split(k, dataX, dataY, seed, num_folds):
     print("Fold:", k, "\nSeed:", seed)
     print("-" * 10)
 
@@ -120,9 +120,19 @@ def run_kfold(k, dataX, dataY, fn_to_run, seed, classification, num_folds=2):
     train_x, train_y = dataX.iloc[train], dataY.iloc[train]
     test_x, test_y = dataX.iloc[test], dataY.iloc[test]
 
+    return train_x, train_y, test_x, test_y
+
+
+def run_kfold(k, dataX, dataY, fn_to_run, seed, classification, num_folds=2):
+    train_x, train_y, test_x, test_y = kfold_split(k, dataX, dataY, seed, num_folds)
+
     model, training_time_minutes, score = fn_to_run(train_x, train_y, test_x, test_y, classification)
 
     return training_time_minutes, score
+
+def train_test_split(dataset, k, seed, classification=True, num_folds=2):
+    data_x, data_y = read_data(dataset, classification)
+    return kfold_split(k, data_x, data_y, seed, num_folds)
 
 
 def run(dataset, k, fn_to_run, seed, classification):

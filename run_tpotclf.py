@@ -16,7 +16,8 @@ if __name__ == "__main__":
         verbosity=2,
     )
 
-    data_x, data_y = helpers.read_data(args.dataset)
+    train_x, train_y, test_x, test_y = helpers.train_test_split(args.dataset, k=args.fold, seed=args.seed)
+
     testing_frequency = 1
     total_test_runs = 3
 
@@ -28,8 +29,8 @@ if __name__ == "__main__":
     scores = []
 
     for _ in range(total_test_runs):
-        tpot.fit(data_x, data_y)
-        score = tpot.score(data_x, data_y)
+        tpot.fit(train_x, train_y)
+        score = tpot.score(test_x, test_y)
         scores.append(score)
 
     print(scores)

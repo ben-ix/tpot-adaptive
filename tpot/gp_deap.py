@@ -215,7 +215,6 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
     for ind in population:
         initialize_stats_dict(ind)
 
-    print("Frst ecal")
     population[:] = toolbox.evaluate(population)
 
     record = stats.compile(population) if stats is not None else {}
@@ -225,13 +224,8 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
 
     best_fitness_last_gen = logbook.chapters["fitness"].select("max")[-1]
 
-    # For tracking how the crossover and mutation rate evolves
-    mutation_history = []
-    crs_history = []
-
     # Begin the generational process
     for gen in range(1, 999999999):  # TODO: Update this condition
-        print("Gen", gen)
         # after each population save a periodic pipeline
         if per_generation_function is not None:
             per_generation_function(gen)
@@ -243,13 +237,11 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         # We're always adding the value 2 before in the fibonacci sequence, as the final element is the current_pop_size
         offspring_size = previous_sizes[-2]
 
+        # Use the most recent rate
+        mutpb = param_dict["mutpb_rates"][-1]
+
         # Vary the population
-        offspring = varOr(population, toolbox, offspring_size, cxpb=param_dict["cxpb"], mutpb=param_dict["mutpb"])
-
-        mutation_history.append(param_dict["mutpb"])
-        crs_history.append(param_dict["cxpb"])
-
-        print("Mutation history:", mutation_history)
+        offspring = varOr(population, toolbox, offspring_size, cxpb=1-mutpb, mutpb=mutpb)
 
         # Update generation statistic for all individuals which have invalid 'generation' stats
         # This hold for individuals that have been altered in the varOr function
@@ -292,10 +284,9 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
         # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
         # so we should have a high mutation rate.
-        param_dict["mutpb"] = 1 - (fitness_std / max_std)
+        mutpb = 1 - (fitness_std / max_std)
 
-        # Crossover just becomes the remainder.
-        param_dict["cxpb"] = 1 - param_dict["mutpb"]
+        param_dict["mutpb_rates"].append(mutpb)
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:
