@@ -107,8 +107,7 @@ if sys.platform.startswith('win'):
 class TPOTBase(BaseEstimator):
     """Automatically creates and optimizes machine learning pipelines using GP."""
 
-    def __init__(self, generations=100, offspring_size=None,
-                 scoring=None, cv=5, subsample=1.0, n_jobs=1,
+    def __init__(self, scoring=None, cv=5, subsample=1.0, n_jobs=1,
                  max_time_mins=None, max_eval_time_mins=5,
                  random_state=None, config_dict=None, template=None,
                  warm_start=False, memory=None, use_dask=False,
@@ -118,14 +117,6 @@ class TPOTBase(BaseEstimator):
 
         Parameters
         ----------
-        generations: int, optional (default: 100)
-            Number of iterations to the run pipeline optimization process.
-            Generally, TPOT will work better when you give it more generations (and
-            therefore time) to optimize the pipeline. TPOT will evaluate
-            POPULATION_SIZE + GENERATIONS x OFFSPRING_SIZE pipelines in total.
-        offspring_size: int, optional (default: None)
-            Number of offspring to produce in each GP generation.
-            By default, offspring_size = population_size.
         scoring: string or callable, optional
             Function used to evaluate the quality of a given pipeline for the
             problem. By default, accuracy is used for classification problems and
@@ -256,8 +247,6 @@ class TPOTBase(BaseEstimator):
         if self.__class__.__name__ == 'TPOTBase':
             raise RuntimeError('Do not instantiate the TPOTBase class directly; use TPOTRegressor or TPOTClassifier instead.')
 
-        self.offspring_size = offspring_size
-        self.generations = generations
         self.scoring=scoring
         self.cv = cv
         self.subsample = subsample
@@ -518,6 +507,7 @@ class TPOTBase(BaseEstimator):
             self._pareto_front = None
             self._last_optimized_pareto_front = None
             self._last_optimized_pareto_front_n_gens = 0
+            self._logbook = tools.Logbook()
 
         self._optimized_pipeline = None
         self._optimized_pipeline_score = None
@@ -551,12 +541,6 @@ class TPOTBase(BaseEstimator):
             if op_class:
                 self.operators.append(op_class)
                 self.arguments += arg_types
-
-        # Schedule TPOT to run for many generations if the user specifies a
-        # run-time limit TPOT will automatically interrupt itself when the timer
-        # runs out
-        if self.max_time_mins is not None:
-            self.generations = 1000000
 
         # Prompt the user if their version is out of date
         if not self.disable_update_check:
@@ -666,12 +650,21 @@ class TPOTBase(BaseEstimator):
         self._last_pipeline_write = self._start_datetime
         self._toolbox.register('evaluate', self._evaluate_individuals, features=features, target=target, sample_weight=sample_weight, groups=groups)
 
-        # assign population, self._pop can only be not None if warm_start is enabled
-        if self._pop:
-            pop = self._pop
-        else:
-            # We start with a single individual as the population and adapt this dynamically
-            pop = self._toolbox.population(n=1)
+        # Assign population to a new random population if one doesnt exist already (or if we are not doing a warm start)
+        # and setup starting parameters
+        if not self.warm_start or not self._pop:
+            # We begin with the smallest possible size, 1
+            self._pop = self._toolbox.population(n=1)
+
+            # Also set the EC parameters to the default starting point.
+            self._param_dict = {
+                # We increase pop siz in the fibonacci sequence.  0 is skipped because this doesnt make sense for a poulation size
+                "previous_sizes": [1, 1],
+                "improvements": [],
+                "mutpb": 0.5,  # No preference for either to begin with
+                "cxpb": 0.5,  # No preference for either to begin with
+            }
+
 
         def pareto_eq(ind1, ind2):
             """Determine whether two individuals are equal on the Pareto front.
@@ -696,7 +689,6 @@ class TPOTBase(BaseEstimator):
         if not self.warm_start or not self._pareto_front:
             self._pareto_front = tools.ParetoFront(similar=pareto_eq)
 
-
         stats_fit = tools.Statistics(key=lambda ind: ind.fitness.values[1])
         stats_size = tools.Statistics(key=lambda ind: ind.fitness.values[0])
 
@@ -706,23 +698,21 @@ class TPOTBase(BaseEstimator):
         mstats.register("max", np.max)
         mstats.register("std", np.std)
 
+        self._logbook.header = ['gen', 'nevals'] + (mstats.fields)
+
         try:
             with warnings.catch_warnings():
                 self._setup_memory()
                 warnings.simplefilter('ignore')
-                pop, _ = adaptiveEa(
-                    population=pop,
+                self._pop, self._param_dict = adaptiveEa(
+                    population=self._pop,
                     toolbox=self._toolbox,
-                    ngen=self.generations,
+                    logbook=self._logbook,
+                    param_dict=self._param_dict,
                     stats=mstats,
-                    halloffame=self._pareto_front,
                     verbose=self.verbosity,
                     per_generation_function=self._check_periodic_pipeline
                 )
-
-            # store population for the next call
-            if self.warm_start:
-                self._pop = pop
 
         # Allow for certain exceptions to signal a premature fit() cancellation
         except (KeyboardInterrupt, SystemExit, StopIteration) as e:

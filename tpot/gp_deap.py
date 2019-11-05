@@ -172,27 +172,14 @@ def initialize_stats_dict(individual):
     individual.statistics['predecessor'] = 'ROOT',
 
 
-def _completely_dominates(best, other):
-    """Extension of deap.base.dominates which returns True if all objective
-    of *self* are strictly better than *other*.
-    """
-    for best_wvalue, other_wvalue in zip(best.fitness.wvalues, other.fitness.wvalues):
-        if best_wvalue <= other_wvalue:
-            return False
-
-    return True
-
-def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
-               verbose=0, per_generation_function=None):
+def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
+               per_generation_function=None):
     """This is the :math:`(\mu + \lambda)` evolutionary algorithm.
     :param population: A list of individuals.
     :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
                     operators.
-    :param ngen: The number of generation.
     :param stats: A :class:`~deap.tools.Statistics` object that is updated
                   inplace, optional.
-    :param halloffame: A :class:`~deap.tools.HallOfFame` object that will
-                       contain the best individuals, optional.
     :param verbose: Whether or not to log the statistics.
     :param per_generation_function: if supplied, call this function before each generation
                             used by tpot to save best pipeline before each new generation
@@ -224,14 +211,12 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
     variation.
     """
 
-    logbook = tools.Logbook()
-    logbook.header = ['gen', 'nevals'] + (stats.fields if stats else [])
-
     # Initialize statistics dict for the individuals in the population, to keep track of mutation/crossover operations and predecessor relations
     for ind in population:
         initialize_stats_dict(ind)
 
-    population = toolbox.evaluate(population)
+    print("Frst ecal")
+    population[:] = toolbox.evaluate(population)
 
     record = stats.compile(population) if stats is not None else {}
     logbook.record(gen=0, nevals=len(population), **record)
@@ -240,33 +225,31 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
 
     best_fitness_last_gen = logbook.chapters["fitness"].select("max")[-1]
 
-    # We increase in the fibonacci sequence. Note: 0 is skipped because this doesnt make sense for a poulation size
-    previous_sizes = [1, 1]
-
-    # The "golden ration". For fibonacci sequences.
-    phi = (1 + 5 ** 0.5) / 2
-
-    # For tracking the imporvement in fitness each generation
-    improvements = []
-
-    #Start of equal chance, and adjust as we go
-    mutpb = 0.5
-    cxpb = 0.5
+    # For tracking how the crossover and mutation rate evolves
+    mutation_history = []
+    crs_history = []
 
     # Begin the generational process
-    for gen in range(1, ngen + 1):
+    for gen in range(1, 999999999):  # TODO: Update this condition
+        print("Gen", gen)
         # after each population save a periodic pipeline
         if per_generation_function is not None:
             per_generation_function(gen)
 
+        previous_sizes = param_dict["previous_sizes"]
+
         current_pop_size = previous_sizes[-1]
 
         # We're always adding the value 2 before in the fibonacci sequence, as the final element is the current_pop_size
-        offspring_size = previous_sizes[-2]  # Protect against the case at start of sequence with size 0
+        offspring_size = previous_sizes[-2]
 
         # Vary the population
-        offspring = varOr(population, toolbox, offspring_size, cxpb, mutpb)
+        offspring = varOr(population, toolbox, offspring_size, cxpb=param_dict["cxpb"], mutpb=param_dict["mutpb"])
 
+        mutation_history.append(param_dict["mutpb"])
+        crs_history.append(param_dict["cxpb"])
+
+        print("Mutation history:", mutation_history)
 
         # Update generation statistic for all individuals which have invalid 'generation' stats
         # This hold for individuals that have been altered in the varOr function
@@ -279,6 +262,8 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
         # Compute improvement over previous gen
         best_fitness_this_gen = logbook.chapters["fitness"].select("max")[-1]
         improvement = best_fitness_this_gen - best_fitness_last_gen
+
+        improvements = param_dict["improvements"]
         average_improvemenet = mean(improvements) if improvements else 1
         improvements.append(improvement)
 
@@ -286,7 +271,7 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
             # Shrink population if we can
             if len(previous_sizes) > 2:
                 previous_sizes.pop()  # Remove current size
-                next_population_size = previous_sizes[-1] # Retreat to previous pop size. Be careful not to go to zero
+                next_population_size = previous_sizes[-1]  # Retreat to previous pop size. Be careful not to go to zero
             else:
                 # If we cant, then the minimum size is 1
                 next_population_size = 1
@@ -303,13 +288,14 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
 
         # Adjust crossover and mutation rates
         fitness_std = logbook.chapters["fitness"].select("std")[-1]
+
         max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
         # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
         # so we should have a high mutation rate.
-        mutpb = 1 - (fitness_std / max_std)
+        param_dict["mutpb"] = 1 - (fitness_std / max_std)
 
-        # Crossover just becomes the remainder
-        cxpb = 1 - mutpb
+        # Crossover just becomes the remainder.
+        param_dict["cxpb"] = 1 - param_dict["mutpb"]
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:
@@ -323,7 +309,7 @@ def adaptiveEa(population, toolbox, ngen, stats=None, halloffame=None,
 
         best_fitness_last_gen = best_fitness_this_gen
 
-    return population, logbook
+    return population, param_dict
 
 
 def cxOnePoint(ind1, ind2):

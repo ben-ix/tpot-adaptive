@@ -16,6 +16,24 @@ if __name__ == "__main__":
         verbosity=2,
     )
 
-    fn = partial(helpers.run_and_time_estimator, method)
-    scores = helpers.main(args, fn)
-    print("TPOT", scores)
+    data_x, data_y = helpers.read_data(args.dataset)
+    testing_frequency = 1
+    total_test_runs = 3
+
+    tpot = TPOTClassifier(
+        max_time_mins=testing_frequency,
+        warm_start=True
+    )
+
+    scores = []
+
+    for _ in range(total_test_runs):
+        tpot.fit(data_x, data_y)
+        score = tpot.score(data_x, data_y)
+        scores.append(score)
+
+    print(scores)
+
+    #fn = partial(helpers.run_and_time_estimator, method)
+    #scores = helpers.main(args, fn)
+    #print("TPOT", scores)
