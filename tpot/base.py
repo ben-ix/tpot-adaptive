@@ -659,9 +659,9 @@ class TPOTBase(BaseEstimator):
             # Also set the EC parameters to the default starting point.
             self._param_dict = {
                 # We increase pop siz in the fibonacci sequence.  0 is skipped because this doesnt make sense for a poulation size
-                "previous_sizes": [1, 1],
-                "improvements": [],
-                "mutpb_rates": [0.5],  # 50:50 crossover/mutation to begin with (no preference). Tracks rates overtime
+                'previous_sizes': [1, 1],
+                'mutpb_rates': [0.5],  # 50:50 crossover/mutation to begin with (no preference). Tracks rates overtime
+                'best_individual_fitness': (-np.inf, -np.inf) # Starts of with worst seen (weighted)
             }
 
 
@@ -790,6 +790,7 @@ class TPOTBase(BaseEstimator):
                     self._optimized_pipeline = pipeline
                     self._optimized_pipeline_score = pipeline_scores.wvalues[1]
                     self._complexity = -pipeline_scores.wvalues[0]
+                    self._param_dict['best_individual_fitness'] = pipeline_scores.wvalues
 
             if not self._optimized_pipeline:
                 raise RuntimeError('There was an error in the TPOT optimization '

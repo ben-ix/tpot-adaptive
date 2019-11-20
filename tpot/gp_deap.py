@@ -222,7 +222,8 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
 
     print(logbook.stream)
 
-    best_fitness_last_gen = logbook.chapters["fitness"].select("max")[-1]
+    best_fitness_last_gen = param_dict['best_individual_fitness'] #logbook.chapters["fitness"].select("max")[-1]
+
 
     # Begin the generational process
     for gen in range(1, 999999999):  # TODO: Update this condition
@@ -252,14 +253,13 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         offspring = toolbox.evaluate(offspring)
 
         # Compute improvement over previous gen
-        best_fitness_this_gen = logbook.chapters["fitness"].select("max")[-1]
-        improvement = best_fitness_this_gen - best_fitness_last_gen
+        best_fitness_this_gen = param_dict['best_individual_fitness']
+        comparison_fitnesses = list(zip(best_fitness_this_gen, best_fitness_last_gen))
 
-        improvements = param_dict["improvements"]
-        average_improvemenet = mean(improvements) if improvements else 1
-        improvements.append(improvement)
+        # The number of objectives we improved
+        improvement = sum([1 * (x > y) for (x, y) in comparison_fitnesses])
 
-        if improvement > average_improvemenet:
+        if improvement == 2:        # If we improved on both objectives
             # Shrink population if we can
             if len(previous_sizes) > 2:
                 previous_sizes.pop()  # Remove current size
@@ -267,26 +267,27 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
             else:
                 # If we cant, then the minimum size is 1
                 next_population_size = 1
-        elif improvement > 0:
+        elif improvement == 1:          # If we improved on only one objective
             # Better, so keep population size
             next_population_size = current_pop_size
-        else:
-            # No progress. So increase population size, as done in fibonacci sequence
+        else:                   # No progress. So increase population size, as done in fibonacci sequence
             next_population_size = previous_sizes[-2] + previous_sizes[-1]
             previous_sizes.append(next_population_size)
 
         # Select the next generation population
         population[:] = toolbox.select(population + offspring, next_population_size)
 
-        # Adjust crossover and mutation rates
-        fitness_std = logbook.chapters["fitness"].select("std")[-1]
+        # If we didnt improve, adjust mutation rate
+        if not improvement:
+            # Adjust crossover and mutation rates
+            fitness_std = logbook.chapters["fitness"].select("std")[-1]
 
-        max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
-        # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
-        # so we should have a high mutation rate.
-        mutpb = 1 - (fitness_std / max_std)
+            max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
+            # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
+            # so we should have a high mutation rate.
+            mutpb = 1 - (fitness_std / max_std)
 
-        param_dict["mutpb_rates"].append(mutpb)
+            param_dict["mutpb_rates"].append(mutpb)
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:
