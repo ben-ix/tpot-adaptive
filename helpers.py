@@ -108,9 +108,6 @@ def write_file(file, contents):
 
 
 def kfold_split(k, dataX, dataY, seed, num_folds):
-    print("Fold:", k, "\nSeed:", seed)
-    print("-" * 10)
-
     # 10-fold. Shuffle the data according to the fixed seed for reproducability
     kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
 
@@ -179,4 +176,11 @@ def args():
     parser.add_argument('--cores', default=1, help='Number of cores to use', type=int)
 
     args = parser.parse_args()
+
+    print("Dataset:", args.dataset)
+    print("Time given:", args.runtime)
+    print("Cores:", args.cores)
+    print("Fold:", args.fold)
+    print("Seed:", args.seed)
+
     return args

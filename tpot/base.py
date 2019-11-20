@@ -693,9 +693,17 @@ class TPOTBase(BaseEstimator):
 
         mstats = tools.MultiStatistics(fitness=stats_fit, complexity=stats_size)
 
+        def inf_safe(op, input):
+            # TODO: Can we remove this cast? input is a tuple by default
+            input = np.asarray(input)
+            # Exclude infs
+            input = input[np.isfinite(input)]
+            return op(input)
+
+
         mstats.register("min",  np.min)
         mstats.register("max", np.max)
-        mstats.register("std", np.std)
+        mstats.register("std", partial(inf_safe, np.std))
 
         self._logbook.header = ['gen', 'nevals'] + (mstats.fields)
 
@@ -781,6 +789,7 @@ class TPOTBase(BaseEstimator):
                 if pipeline_scores.wvalues[1] > self._optimized_pipeline_score:
                     self._optimized_pipeline = pipeline
                     self._optimized_pipeline_score = pipeline_scores.wvalues[1]
+                    self._complexity = -pipeline_scores.wvalues[0]
 
             if not self._optimized_pipeline:
                 raise RuntimeError('There was an error in the TPOT optimization '
@@ -833,14 +842,14 @@ class TPOTBase(BaseEstimator):
                 warnings.simplefilter('ignore')
                 self.fitted_pipeline_.fit(features, target)
 
+
             if self.verbosity in [1, 2]:
                 # Add an extra line of spacing if the progress bar was used
                 if self.verbosity >= 2:
                     print('')
 
                 optimized_pipeline_str = self.clean_pipeline_string(self._optimized_pipeline)
-                print('Best pipeline:', optimized_pipeline_str)
-                print('Mutation rates:', self._param_dict["mutpb_rates"])
+                print(optimized_pipeline_str)
 
             # Store and fit the entire Pareto front as fitted models for convenience
             self.pareto_front_fitted_pipelines_ = {}
@@ -1343,7 +1352,7 @@ class TPOTBase(BaseEstimator):
                                     self.evaluated_individuals_[ind_str]['internal_cv_score'])
             # for individuals were not evaluated in this generation, TPOT will assign a bad fitness score
             for ind in individuals[num_eval_ind:]:
-                ind.fitness.values = (5000.,-float('inf'))
+                ind.fitness.values = (float('inf'), -float('inf'))
 
             self._pareto_front.update(population)
             raise KeyboardInterrupt
@@ -1398,14 +1407,14 @@ class TPOTBase(BaseEstimator):
             # This is a fairly hacky way to prevent TPOT from getting stuck on bad pipelines and should be improved in a future release
             individual_str = str(individual)
             if not len(individual): # a pipeline cannot be randomly generated
-                self.evaluated_individuals_[individual_str] = self._combine_individual_stats(5000.,
+                self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                              -float('inf'),
                                                                                              individual.statistics)
                 self._update_pbar(pbar_msg='Invalid pipeline encountered. Skipping its evaluation.')
                 continue
             sklearn_pipeline_str = generate_pipeline_code(expr_to_tree(individual, self._pset), self.operators)
             if sklearn_pipeline_str.count('PolynomialFeatures') > 1:
-                self.evaluated_individuals_[individual_str] = self._combine_individual_stats(5000.,
+                self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                              -float('inf'),
                                                                                              individual.statistics)
                 self._update_pbar(pbar_msg='Invalid pipeline encountered. Skipping its evaluation.')
@@ -1432,7 +1441,7 @@ class TPOTBase(BaseEstimator):
 
                     stats_dicts[individual_str] = individual.statistics
                 except Exception:
-                    self.evaluated_individuals_[individual_str] = self._combine_individual_stats(5000.,
+                    self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                                  -float('inf'),
                                                                                                  individual.statistics)
                     self._update_pbar()
