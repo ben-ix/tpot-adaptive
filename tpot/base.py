@@ -1245,15 +1245,22 @@ class TPOTBase(BaseEstimator):
         stats: dictionary
             dict containing the combined statistics:
             'operator_count': number of operators in the pipeline
-            'internal_cv_score': internal cross validation score
+            'all_scores': All of the (repeated) internal cv scores
+            'average_cv_score': Average cross validation score
             and all the statistics contained in the 'individual_stats' parameter
         """
         stats = deepcopy(individual_stats)  # Deepcopy, since the string reference to predecessor should be cloned
         stats['operator_count'] = operator_count
-        stats['internal_cv_score'] = cv_score
+
+        if not 'all_scores' in stats:
+            stats['all_scores'] = []
+
+        stats['all_scores'].append(cv_score)
+        stats['average_cv_score'] = np.mean(stats['all_scores'])
+
         return stats
 
-    def _evaluate_individuals(self, population, features, target, sample_weight=None, groups=None):
+    def _evaluate_individuals(self, population, features, target, seed=0, sample_weight=None, groups=None):
         """Determine the fit of the provided individuals.
 
         Parameters
@@ -1277,8 +1284,8 @@ class TPOTBase(BaseEstimator):
             according to its performance on the provided data
 
         """
-        # Evaluate the individuals with an invalid fitness
-        individuals = [ind for ind in population if not ind.fitness.valid]
+        # Evaluate all individuals since seed changes
+        individuals = population
 
         operator_counts, eval_individuals_str, sklearn_pipeline_list, stats_dicts = self._preprocess_individuals(individuals)
 
@@ -1289,6 +1296,7 @@ class TPOTBase(BaseEstimator):
             target=target,
             cv=self.cv,
             scoring_function=self.scoring_function,
+            seed=seed,
             sample_weight=sample_weight,
             groups=groups,
             timeout=max(int(self.max_eval_time_mins * 60), 1),
@@ -1350,11 +1358,14 @@ class TPOTBase(BaseEstimator):
             for ind in individuals[:num_eval_ind]:
                 ind_str = str(ind)
                 ind.fitness.values = (self.evaluated_individuals_[ind_str]['operator_count'],
-                                    self.evaluated_individuals_[ind_str]['internal_cv_score'])
+                                    self.evaluated_individuals_[ind_str]['average_cv_score'])
+
             # for individuals were not evaluated in this generation, TPOT will assign a bad fitness score
             for ind in individuals[num_eval_ind:]:
                 ind.fitness.values = (float('inf'), -float('inf'))
 
+            # Here we dont clear pareto front because we may only have a few evaluated in the final generation
+            # so in that case we can use front from the previous gen too
             self._pareto_front.update(population)
             raise KeyboardInterrupt
 
@@ -1362,11 +1373,13 @@ class TPOTBase(BaseEstimator):
 
         for ind in individuals:
             ind_str = str(ind)
-            ind.fitness.values = (self.evaluated_individuals_[ind_str]['operator_count'],
-                                self.evaluated_individuals_[ind_str]['internal_cv_score'])
-        individuals = [ind for ind in population if not ind.fitness.valid]
-        self._pareto_front.update(population)
 
+            ind.fitness.values = (self.evaluated_individuals_[ind_str]['operator_count'],
+                                self.evaluated_individuals_[ind_str]['average_cv_score'])
+
+
+        self._pareto_front.clear()  # Must clear front because fitness functions change each gen so cant compare between
+        self._pareto_front.update(population)
         return population
 
     def _preprocess_individuals(self, individuals):
@@ -1407,22 +1420,24 @@ class TPOTBase(BaseEstimator):
             # Disallow certain combinations of operators because they will take too long or take up too much RAM
             # This is a fairly hacky way to prevent TPOT from getting stuck on bad pipelines and should be improved in a future release
             individual_str = str(individual)
+
+            individual_statistics = individual.statistics
+
+            if individual_str in self.evaluated_individuals_:
+                individual_statistics = {**individual_statistics, **self.evaluated_individuals_[individual_str]}
+
             if not len(individual): # a pipeline cannot be randomly generated
                 self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                              -float('inf'),
-                                                                                             individual.statistics)
+                                                                                             individual_statistics)
                 self._update_pbar(pbar_msg='Invalid pipeline encountered. Skipping its evaluation.')
                 continue
             sklearn_pipeline_str = generate_pipeline_code(expr_to_tree(individual, self._pset), self.operators)
             if sklearn_pipeline_str.count('PolynomialFeatures') > 1:
                 self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                              -float('inf'),
-                                                                                             individual.statistics)
+                                                                                             individual_statistics)
                 self._update_pbar(pbar_msg='Invalid pipeline encountered. Skipping its evaluation.')
-            # Check if the individual was evaluated before
-            elif individual_str in self.evaluated_individuals_:
-                self._update_pbar(pbar_msg=('Pipeline encountered that has previously been evaluated during the '
-                                            'optimization process. Using the score from the previous evaluation.'))
             else:
                 try:
                     # Transform the tree expression into an sklearn pipeline
@@ -1440,11 +1455,11 @@ class TPOTBase(BaseEstimator):
                     operator_count = self._operator_count(individual)
                     operator_counts[individual_str] = max(1, operator_count)
 
-                    stats_dicts[individual_str] = individual.statistics
+                    stats_dicts[individual_str] = individual_statistics
                 except Exception:
                     self.evaluated_individuals_[individual_str] = self._combine_individual_stats(float('inf'),
                                                                                                  -float('inf'),
-                                                                                                 individual.statistics)
+                                                                                                 individual_statistics)
                     self._update_pbar()
                     continue
                 eval_individuals_str.append(individual_str)
@@ -1471,11 +1486,18 @@ class TPOTBase(BaseEstimator):
         -------
         None
         """
+
         for result_score, individual_str in zip(result_score_list, eval_individuals_str):
             if type(result_score) in [float, np.float64, np.float32]:
+
+                individual_statistics = stats_dicts[individual_str]
+
+                if individual_str in self.evaluated_individuals_:
+                    individual_statistics = {**individual_statistics, **self.evaluated_individuals_[individual_str]}
+
                 self.evaluated_individuals_[individual_str] = self._combine_individual_stats(operator_counts[individual_str],
                                                                                              result_score,
-                                                                                             stats_dicts[individual_str])
+                                                                                             individual_statistics)
             else:
                 raise ValueError('Scoring function does not return a float.')
 

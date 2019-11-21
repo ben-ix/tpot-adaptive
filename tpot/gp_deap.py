@@ -31,6 +31,7 @@ from sklearn.utils import indexable
 from sklearn.metrics.scorer import check_scoring
 from sklearn.model_selection._validation import _fit_and_score
 from sklearn.model_selection._split import check_cv
+from sklearn.model_selection import StratifiedKFold
 
 from sklearn.base import clone, is_classifier
 from collections import defaultdict
@@ -215,7 +216,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
     for ind in population:
         initialize_stats_dict(ind)
 
-    population[:] = toolbox.evaluate(population)
+    population[:] = toolbox.evaluate(population, seed=0)
 
     record = stats.compile(population) if stats is not None else {}
     logbook.record(gen=0, nevals=len(population), **record)
@@ -250,7 +251,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
             if ind.statistics['generation'] == 'INVALID':
                 ind.statistics['generation'] = gen
 
-        offspring = toolbox.evaluate(offspring)
+        offspring = toolbox.evaluate(offspring, seed=gen)
 
         # Compute improvement over previous gen
         best_fitness_this_gen = param_dict['best_individual_fitness']
@@ -403,7 +404,7 @@ def mutNodeReplacement(individual, pset):
 
 @threading_timeoutable(default="Timeout")
 def _wrapped_cross_val_score(sklearn_pipeline, features, target,
-                             cv, scoring_function, sample_weight=None,
+                             cv, scoring_function, seed, sample_weight=None,
                              groups=None, use_dask=False):
     """Fit estimator and compute scores for a given dataset split.
 
@@ -435,7 +436,8 @@ def _wrapped_cross_val_score(sklearn_pipeline, features, target,
 
     features, target, groups = indexable(features, target, groups)
 
-    cv = check_cv(cv, target, classifier=is_classifier(sklearn_pipeline))
+    # TODO: Fix this for regression
+    cv = StratifiedKFold(n_splits=cv, shuffle=True, random_state=seed)
     cv_iter = list(cv.split(features, target, groups))
     scorer = check_scoring(sklearn_pipeline, scoring=scoring_function)
 
