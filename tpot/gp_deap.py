@@ -173,7 +173,7 @@ def initialize_stats_dict(individual):
     individual.statistics['predecessor'] = 'ROOT',
 
 
-def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
+def adaptiveEa(population, logbook, toolbox, param_dict, starting_generation, stats=None, verbose=0,
                per_generation_function=None):
     """This is the :math:`(\mu + \lambda)` evolutionary algorithm.
     :param population: A list of individuals.
@@ -216,18 +216,17 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
     for ind in population:
         initialize_stats_dict(ind)
 
-    population[:] = toolbox.evaluate(population, seed=0)
+    population[:] = toolbox.evaluate(population, generation=starting_generation)
 
     record = stats.compile(population) if stats is not None else {}
-    logbook.record(gen=0, nevals=len(population), **record)
+    logbook.record(gen=starting_generation, nevals=len(population), **record)
 
     print(logbook.stream)
 
-    best_fitness_last_gen = param_dict['best_individual_fitness'] #logbook.chapters["fitness"].select("max")[-1]
-
+    best_fitness_last_gen = param_dict['best_individual_fitness']
 
     # Begin the generational process
-    for gen in range(1, 999999999):  # TODO: Update this condition
+    for gen in range(starting_generation + 1, 999999999):  # TODO: Update this condition
         # after each population save a periodic pipeline
         if per_generation_function is not None:
             per_generation_function(gen)
@@ -251,7 +250,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
             if ind.statistics['generation'] == 'INVALID':
                 ind.statistics['generation'] = gen
 
-        offspring = toolbox.evaluate(offspring, seed=gen)
+        offspring = toolbox.evaluate(offspring, generation=gen)
 
         # Compute improvement over previous gen
         best_fitness_this_gen = param_dict['best_individual_fitness']

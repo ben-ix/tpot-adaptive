@@ -509,6 +509,12 @@ class TPOTBase(BaseEstimator):
             self._last_optimized_pareto_front_n_gens = 0
             self._logbook = tools.Logbook()
 
+            # Moved this here so its not reset for warmstarts
+            self.evaluated_individuals_ = {}
+
+            # Keep track of what generation we are at. Used for warm start
+            self._generations_completed = 0
+
         self._optimized_pipeline = None
         self._optimized_pipeline_score = None
         self._exported_pipeline_text = []
@@ -558,10 +564,6 @@ class TPOTBase(BaseEstimator):
         # Specifies where to output the progress messages (default: sys.stdout).
         # Maybe open this API in future version of TPOT.(io.TextIOWrapper or io.StringIO)
         self._file = sys.stdout
-
-        # Dictionary of individuals that have already been evaluated in previous
-        # generations
-        self.evaluated_individuals_ = {}
 
         self._setup_scoring_function(self.scoring)
 
@@ -717,6 +719,7 @@ class TPOTBase(BaseEstimator):
                     logbook=self._logbook,
                     param_dict=self._param_dict,
                     stats=mstats,
+                    starting_generation=self._generations_completed,
                     verbose=self.verbosity,
                     per_generation_function=self._check_periodic_pipeline
                 )
@@ -1260,7 +1263,7 @@ class TPOTBase(BaseEstimator):
 
         return stats
 
-    def _evaluate_individuals(self, population, features, target, seed=0, sample_weight=None, groups=None):
+    def _evaluate_individuals(self, population, features, target, generation=0, sample_weight=None, groups=None):
         """Determine the fit of the provided individuals.
 
         Parameters
@@ -1284,6 +1287,7 @@ class TPOTBase(BaseEstimator):
             according to its performance on the provided data
 
         """
+
         # Evaluate all individuals since seed changes
         individuals = population
 
@@ -1296,7 +1300,7 @@ class TPOTBase(BaseEstimator):
             target=target,
             cv=self.cv,
             scoring_function=self.scoring_function,
-            seed=seed,
+            seed=generation,
             sample_weight=sample_weight,
             groups=groups,
             timeout=max(int(self.max_eval_time_mins * 60), 1),
@@ -1380,6 +1384,8 @@ class TPOTBase(BaseEstimator):
 
         self._pareto_front.clear()  # Must clear front because fitness functions change each gen so cant compare between
         self._pareto_front.update(population)
+
+        self._generations_completed = generation
         return population
 
     def _preprocess_individuals(self, individuals):
