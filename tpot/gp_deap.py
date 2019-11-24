@@ -282,7 +282,9 @@ def adaptiveEa(population, logbook, toolbox, param_dict, starting_generation, st
             # Adjust crossover and mutation rates
             fitness_std = logbook.chapters["fitness"].select("std")[-1]
 
-            max_std = 0.5  # The largest possible standard deviation. All individuals either 100% correct or 100% wrong.
+            # The maximum obeserved standard deviation
+            max_std = max(logbook.chapters["fitness"].select("std"))
+
             # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
             # so we should have a high mutation rate.
             mutpb = 1 - (fitness_std / max_std)
