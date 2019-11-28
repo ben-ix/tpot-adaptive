@@ -219,14 +219,14 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
     population[:] = toolbox.evaluate(population)
 
     record = stats.compile(population) if stats is not None else {}
-    logbook.record(gen=starting_generation, nevals=len(population), **record)
+    logbook.record(gen=0, nevals=len(population), **record)
 
     print(logbook.stream)
 
     best_fitness_last_gen = param_dict['best_individual_fitness']
 
     # Begin the generational process
-    for gen in range(starting_generation + 1, 999999999):  # TODO: Update this condition
+    for gen in range(1, 999999999):  # TODO: Update this condition
         # after each population save a periodic pipeline
         if per_generation_function is not None:
             per_generation_function(gen)
@@ -236,7 +236,8 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         current_pop_size = previous_sizes[-1]
 
         # We're always adding the value 2 before in the fibonacci sequence, as the final element is the current_pop_size
-        offspring_size = previous_sizes[-2]
+        #offspring_size = previous_sizes[-2]
+        offspring_size = current_pop_size
 
         # Use the most recent rate
         mutpb = param_dict["mutpb_rates"][-1]
@@ -289,7 +290,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
             # so we should have a high mutation rate.
             mutpb = 1 - (fitness_std / max_std)
 
-            param_dict["mutpb_rates"].append(mutpb)
+        param_dict["mutpb_rates"].append(mutpb)
 
         # after each population save a periodic pipeline
         if per_generation_function is not None:
