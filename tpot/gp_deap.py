@@ -236,8 +236,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         current_pop_size = previous_sizes[-1]
 
         # We're always adding the value 2 before in the fibonacci sequence, as the final element is the current_pop_size
-        #offspring_size = previous_sizes[-2]
-        offspring_size = current_pop_size
+        offspring_size = previous_sizes[-2]
 
         # Use the most recent rate
         mutpb = param_dict["mutpb_rates"][-1]

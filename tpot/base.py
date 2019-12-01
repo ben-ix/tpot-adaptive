@@ -487,7 +487,10 @@ class TPOTBase(BaseEstimator):
             creator.create('Individual', gp.PrimitiveTree, fitness=creator.FitnessMulti, statistics=dict)
 
         self._toolbox = base.Toolbox()
-        self._toolbox.register('expr', self._gen_grow_safe, pset=self._pset, min_=self._min, max_=self._max)
+
+        # To begin with only 1 node high
+        self._toolbox.register('expr', self._gen_grow_safe, pset=self._pset, min_=1, max_=2)
+
         self._toolbox.register('individual', tools.initIterate, creator.Individual, self._toolbox.expr)
         self._toolbox.register('population', tools.initRepeat, list, self._toolbox.individual)
         self._toolbox.register('compile', self._compile_to_sklearn)
@@ -1364,6 +1367,8 @@ class TPOTBase(BaseEstimator):
 
         for ind in individuals:
             ind_str = str(ind)
+
+            print(ind_str)
 
             ind.fitness.values = (self.evaluated_individuals_[ind_str]['operator_count'],
                                 self.evaluated_individuals_[ind_str]['internal_cv_score'])
