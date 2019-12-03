@@ -502,12 +502,14 @@ def mutNodeReplacement(individual, pset, clone):
                         for i, arg_type in enumerate(new_node.args):
                             if i != position:
                                 terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
+                                random.shuffle(terminals)
                                 new_subtree_possibilities[i] = terminals
 
-                        new_subtrees = list(itertools.product(*new_subtree_possibilities))
-                        random.shuffle(new_subtrees)
+                        # Note: we dont shuffle here as would involve converting tierator to list. Instead
+                        # we shuffle the terminals above.
+                        new_subtrees = itertools.product(*new_subtree_possibilities)
 
-                        for new_subtree in new_subtree_possibilities:
+                        for new_subtree in new_subtrees:
                             new_subtree[position:position + 1] = individual[rslice]
 
                             # combine with primitives
@@ -522,12 +524,12 @@ def mutNodeReplacement(individual, pset, clone):
 
                     for i, arg_type in enumerate(new_node.args):
                         terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
+                        random.shuffle(terminals)
                         new_subtree_possibilities[i] = terminals
 
-                    new_subtrees = list(itertools.product(*new_subtree_possibilities))
-                    random.shuffle(new_subtrees)
+                    new_subtrees = itertools.product(*new_subtree_possibilities)
 
-                    for new_subtree in new_subtree_possibilities:
+                    for new_subtree in new_subtrees:
                         # combine with primitives
                         new_subtree.insert(0, new_node)
                         individual_clone = clone(individual)
