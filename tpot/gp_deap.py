@@ -24,6 +24,8 @@ License along with TPOT. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import numpy as np
+import random
+import itertools
 from deap import tools, gp
 from inspect import isclass
 from .operator_utils import set_sample_weight
@@ -55,6 +57,7 @@ def pick_two_individuals_eligible_for_crossover(population):
     """
     primitives_by_ind = [set([node.name for node in ind if isinstance(node, gp.Primitive)])
                          for ind in population]
+
     pop_as_str = [str(ind) for ind in population]
 
     eligible_pairs = [(i, i+1+j) for i, ind1_prims in enumerate(primitives_by_ind)
@@ -65,14 +68,10 @@ def pick_two_individuals_eligible_for_crossover(population):
     # Pairs are eligible in both orders, this ensures that both orders are considered
     eligible_pairs += [(j, i) for (i, j) in eligible_pairs]
 
-    if not eligible_pairs:
-        # If there are no eligible pairs, the caller should decide what to do
-        return None, None
+    random.shuffle(eligible_pairs)
 
-    pair = np.random.randint(0, len(eligible_pairs))
-    idx1, idx2 = eligible_pairs[pair]
-
-    return population[idx1], population[idx2]
+    for idx1, idx2 in eligible_pairs:
+        yield population[idx1], population[idx2]
 
 
 def mutate_random_individual(population, toolbox):
@@ -88,11 +87,20 @@ def mutate_random_individual(population, toolbox):
         An individual which is a mutated copy of one of the individuals in population,
         the returned individual does not have fitness.values
     """
-    idx = np.random.randint(0,len(population))
-    ind = population[idx]
-    ind, = toolbox.mutate(ind)
-    del ind.fitness.values
-    return ind
+    indices = list(range(len(population)))
+    random.shuffle(indices)
+
+    for idx in indices:
+        ind = population[idx]
+        ind, = toolbox.mutate(ind)
+
+        if ind:
+            del ind.fitness.values
+            return ind
+
+    # Couldnt mutate. Return a copy
+    print("Couldnt mutate")
+    return toolbox.clone(np.random.choice(population))
 
 
 def varOr(population, toolbox, lambda_, cxpb, mutpb):
@@ -132,15 +140,20 @@ def varOr(population, toolbox, lambda_, cxpb, mutpb):
     for _ in range(lambda_):
         op_choice = np.random.random()
         if op_choice < cxpb:  # Apply crossover
-            ind1, ind2 = pick_two_individuals_eligible_for_crossover(population)
-            if ind1 is not None:
+
+            generated_offspring = False
+
+            for ind1, ind2 in pick_two_individuals_eligible_for_crossover(population):
                 ind1, _ = toolbox.mate(ind1, ind2)
                 del ind1.fitness.values
-            else:
-                # If there is no pair eligible for crossover, we still want to
-                # create diversity in the population, and do so by mutation instead.
+                generated_offspring = True
+                break
+
+            if not generated_offspring:
                 ind1 = mutate_random_individual(population, toolbox)
+
             offspring.append(ind1)
+
         elif op_choice < cxpb + mutpb:  # Apply mutation
             ind = mutate_random_individual(population, toolbox)
             offspring.append(ind)
@@ -306,7 +319,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
     return population, param_dict
 
 
-def cxOnePoint(ind1, ind2):
+def cxOnePoint(ind1, ind2, clone):
     """Randomly select in each individual and exchange each subtree with the
     point as root between each individual.
     :param ind1: First tree participating in the crossover.
@@ -325,21 +338,106 @@ def cxOnePoint(ind1, ind2):
             common_types.append(node.ret)
         types2[node.ret].append(idx)
 
-    if len(common_types) > 0:
-        type_ = np.random.choice(common_types)
+    random.shuffle(common_types)
 
-        index1 = np.random.choice(types1[type_])
-        index2 = np.random.choice(types2[type_])
+    for type_ in common_types:
 
-        slice1 = ind1.searchSubtree(index1)
-        slice2 = ind2.searchSubtree(index2)
-        ind1[slice1], ind2[slice2] = ind2[slice2], ind1[slice1]
+        random.shuffle(types1[type_])
+        random.shuffle(types2[type_])
 
-    return ind1, ind2
+        for index1 in types1[type_]:
+            for index2 in types2[type_]:
+                slice1 = ind1.searchSubtree(index1)
+                slice2 = ind2.searchSubtree(index2)
 
+                ind1_copy, ind2_copy = clone(ind1), clone(ind2)
+                ind1_copy[slice1], ind2_copy[slice2] = ind2_copy[slice2], ind1_copy[slice1]
+
+                yield ind1_copy, ind1_copy
+
+
+def mutInsert(individual, pset, clone):
+    """
+
+    Modification of deap.gp.mutInsert that uses a generator
+    to produce offspring.
+
+    :param individual: The normal or typed tree to be mutated.
+    :returns: A generator of tuples of one tree.
+    """
+    indices = list(range(len(individual)))
+    random.shuffle(indices)
+
+    for index in indices:
+        node = individual[index]
+        slice_ = individual.searchSubtree(index)
+
+        # As we want to keep the current node as children of the new one,
+        # it must accept the return value of the current node
+        primitives = [p for p in pset.primitives[node.ret] if node.ret in p.args]
+
+        random.shuffle(primitives)
+
+        for new_node in primitives:
+            new_subtree = [None] * len(new_node.args)
+            positions = [i for i, a in enumerate(new_node.args) if a == node.ret]
+            random.shuffle(positions)
+
+            for position in positions:
+                for i, arg_type in enumerate(new_node.args):
+                    if i != position:
+                        terms = list(pset.terminals[arg_type])
+                        random.shuffle(terms)
+
+                        for term in terms:
+                            if isclass(term):
+                                term = term()
+                            new_subtree[i] = term
+
+                            new_subtree[position:position + 1] = individual[slice_]
+                            new_subtree.insert(0, new_node)
+
+                            individual_copy = clone(individual)
+                            individual_copy[slice_] = new_subtree
+                            yield individual_copy,
+
+def mutShrink(individual, clone):
+    """
+    Modification of deap.gp.mutShrink which uses generators
+
+    :param individual: The tree to be shrunk.
+    :returns: A generator of tuples of one tree.
+    """
+    # We don't want to "shrink" the root
+    if len(individual) < 3 or individual.height <= 1:
+        return individual,
+
+    iprims = []
+    for i, node in enumerate(individual[1:], 1):
+        if isinstance(node, gp.Primitive) and node.ret in node.args:
+            iprims.append((i, node))
+
+    random.shuffle(iprims)
+
+    for index, prim in iprims:
+        arg_indices = [i for i, type_ in enumerate(prim.args) if type_ == prim.ret]
+        random.shuffle(arg_indices)
+
+        for arg_idx in arg_indices:
+            rindex = index + 1
+            for _ in range(arg_idx + 1):
+                rslice = individual.searchSubtree(rindex)
+                subtree = individual[rslice]
+                rindex += len(subtree)
+
+            slice_ = individual.searchSubtree(index)
+            individual_copy = clone(individual)
+            individual_copy[slice_] = subtree
+
+            yield individual_copy,
 
 # point mutation function
-def mutNodeReplacement(individual, pset):
+def mutNodeReplacement(individual, pset, clone):
     """Replaces a randomly chosen primitive from *individual* by a randomly
     chosen primitive no matter if it has the same number of arguments from the :attr:`pset`
     attribute of the individual.
@@ -356,52 +454,86 @@ def mutNodeReplacement(individual, pset):
 
     """
 
-    index = np.random.randint(0, len(individual))
-    node = individual[index]
-    slice_ = individual.searchSubtree(index)
+    indices = list(range(len(individual)))
+    np.random.shuffle(indices)
 
-    if node.arity == 0:  # Terminal
-        term = np.random.choice(pset.terminals[node.ret])
-        if isclass(term):
-            term = term()
-        individual[index] = term
-    else:   # Primitive
-        # find next primitive if any
-        rindex = None
-        if index + 1 < len(individual):
-            for i, tmpnode in enumerate(individual[index + 1:], index + 1):
-                if isinstance(tmpnode, gp.Primitive) and tmpnode.ret in tmpnode.args:
-                    rindex = i
-                    break
+    for index in indices:
+        node = individual[index]
+        slice_ = individual.searchSubtree(index)
 
-        # pset.primitives[node.ret] can get a list of the type of node
-        # for example: if op.root is True then the node.ret is Output_DF object
-        # based on the function _setup_pset. Then primitives is the list of classifor or regressor
-        primitives = pset.primitives[node.ret]
-        if len(primitives) != 0:
-            new_node = np.random.choice(primitives)
-            new_subtree = [None] * len(new_node.args)
+        if node.arity == 0:  # Terminal
+            terminals = list(pset.terminals[node.ret])
+            random.shuffle(terminals)
+
+            for term in terminals:
+                if isclass(term):
+                    term = term()
+
+                individual_clone = clone(individual)
+                individual_clone[index] = term
+
+                yield individual_clone,
+        else:   # Primitive
+            # find next primitive if any
+            rindex = None
+            if index + 1 < len(individual):
+                for i, tmpnode in enumerate(individual[index + 1:], index + 1):
+                    if isinstance(tmpnode, gp.Primitive) and tmpnode.ret in tmpnode.args:
+                        rindex = i
+                        break
+
+            # pset.primitives[node.ret] can get a list of the type of node
+            # for example: if op.root is True then the node.ret is Output_DF object
+            # based on the function _setup_pset. Then primitives is the list of classifor or regressor
+            primitives = list(pset.primitives[node.ret])
+            random.shuffle(primitives)
+
             if rindex:
-                rnode = individual[rindex]
-                rslice = individual.searchSubtree(rindex)
-                # find position for passing return values to next operator
-                position = np.random.choice([i for i, a in enumerate(new_node.args) if a == rnode.ret])
+                for new_node in primitives:
+                    new_subtree_possibilities = [None] * len(new_node.args)
+                    rnode = individual[rindex]
+                    rslice = individual.searchSubtree(rindex)
+                    # find position for passing return values to next operator
+                    positions = [i for i, a in enumerate(new_node.args) if a == rnode.ret]
+
+                    random.shuffle(positions)
+
+                    for position in positions:
+                        for i, arg_type in enumerate(new_node.args):
+                            if i != position:
+                                terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
+                                new_subtree_possibilities[i] = terminals
+
+                        new_subtrees = list(itertools.product(*new_subtree_possibilities))
+                        random.shuffle(new_subtrees)
+
+                        for new_subtree in new_subtree_possibilities:
+                            new_subtree[position:position + 1] = individual[rslice]
+
+                            # combine with primitives
+                            new_subtree.insert(0, new_node)
+                            individual_clone = clone(individual)
+                            individual_clone[slice_] = new_subtree
+
+                            yield individual_clone,
             else:
-                position = None
-            for i, arg_type in enumerate(new_node.args):
-                if i != position:
-                    term = np.random.choice(pset.terminals[arg_type])
-                    if isclass(term):
-                        term = term()
-                    new_subtree[i] = term
-            # paste the subtree to new node
-            if rindex:
-                new_subtree[position:position + 1] = individual[rslice]
-            # combine with primitives
-            new_subtree.insert(0, new_node)
-            individual[slice_] = new_subtree
-    return individual,
+                for new_node in primitives:
+                    new_subtree_possibilities = [None] * len(new_node.args)
 
+                    for i, arg_type in enumerate(new_node.args):
+                        terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
+                        new_subtree_possibilities[i] = terminals
+
+                    new_subtrees = list(itertools.product(*new_subtree_possibilities))
+                    random.shuffle(new_subtrees)
+
+                    for new_subtree in new_subtree_possibilities:
+                        # combine with primitives
+                        new_subtree.insert(0, new_node)
+                        individual_clone = clone(individual)
+                        individual_clone[slice_] = new_subtree
+
+                        yield individual_clone,
 
 @threading_timeoutable(default="Timeout")
 def _wrapped_cross_val_score(sklearn_pipeline, features, target,

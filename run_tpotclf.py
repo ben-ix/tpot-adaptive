@@ -19,11 +19,13 @@ if __name__ == "__main__":
         scoring="f1_weighted",
         n_jobs=args.cores,
         random_state=0,
+        verbosity=2
     )
 
     test_scores = []
     fitness_progression = []
     complexity = []
+    pareto_front_size = []
 
     for _ in range(total_test_runs):
         tpot.fit(train_x, train_y)
@@ -32,9 +34,11 @@ if __name__ == "__main__":
         test_scores.append(test_score)
         fitness_progression.append(fitness)
         complexity.append(tpot._complexity)
+        pareto_front_size.append(len(tpot._pareto_front))
 
     print("Mutation rate path:", tpot._param_dict["mutpb_rates"])
     print("Population size path:", tpot._logbook.select("nevals"))
+    print("Frontier size path:", pareto_front_size)
     print("Training curve:", fitness_progression)
     print("Testing curve:", test_scores)
     print("Complexity curve:", complexity)

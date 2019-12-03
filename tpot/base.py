@@ -76,7 +76,7 @@ from .config.classifier_sparse import classifier_config_sparse
 
 from .metrics import SCORERS
 from .gp_types import Output_Array
-from .gp_deap import adaptiveEa, mutNodeReplacement, _wrapped_cross_val_score, cxOnePoint
+from .gp_deap import adaptiveEa, mutNodeReplacement, mutInsert, mutShrink, _wrapped_cross_val_score, cxOnePoint
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     from tqdm.autonotebook import tqdm
@@ -496,10 +496,7 @@ class TPOTBase(BaseEstimator):
         self._toolbox.register('compile', self._compile_to_sklearn)
         self._toolbox.register('select', tools.selNSGA2)
         self._toolbox.register('mate', self._mate_operator)
-        if self.tree_structure:
-            self._toolbox.register('expr_mut', self._gen_grow_safe, min_=self._min, max_=self._max + 1)
-        else:
-            self._toolbox.register('expr_mut', self._gen_grow_safe, min_=self._min, max_=self._max)
+
         self._toolbox.register('mutate', self._random_mutation_operator)
 
 
@@ -525,10 +522,6 @@ class TPOTBase(BaseEstimator):
 
         # dont save periodic pipelines more often than this
         self._output_best_pipeline_period_seconds = 30
-
-        # Try crossover and mutation at most this many times for
-        # any one given individual (or pair of individuals)
-        self._max_mut_loops = 50
 
         self._setup_config(self.config_dict)
 
@@ -727,6 +720,8 @@ class TPOTBase(BaseEstimator):
         except (KeyboardInterrupt, SystemExit, StopIteration) as e:
             if self.verbosity > 0:
                 print('{}\nTPOT closed prematurely. Will use the current best pipeline.'.format(e), file=self._file)
+        except Exception as e:
+            print(e)
         finally:
             # keep trying 10 times in case weird things happened like multiple CTRL+C or exceptions
             attempts = 10
@@ -1368,8 +1363,6 @@ class TPOTBase(BaseEstimator):
         for ind in individuals:
             ind_str = str(ind)
 
-            print(ind_str)
-
             ind.fitness.values = (self.evaluated_individuals_[ind_str]['operator_count'],
                                 self.evaluated_individuals_[ind_str]['internal_cv_score'])
 
@@ -1490,10 +1483,9 @@ class TPOTBase(BaseEstimator):
 
     @_pre_test
     def _mate_operator(self, ind1, ind2):
-        for _ in range(self._max_mut_loops):
-            ind1_copy, ind2_copy = self._toolbox.clone(ind1), self._toolbox.clone(ind2)
-            offspring, offspring2 = cxOnePoint(ind1_copy, ind2_copy)
+        ind1_copy, ind2_copy = self._toolbox.clone(ind1), self._toolbox.clone(ind2)
 
+        for offspring, offspring2 in cxOnePoint(ind1_copy, ind2_copy, self._toolbox.clone):
             if str(offspring) not in self.evaluated_individuals_:
                 # We only use the first offspring, so we do not care to check uniqueness of the second.
 
@@ -1506,9 +1498,10 @@ class TPOTBase(BaseEstimator):
                 offspring.statistics['mutation_count'] = ind1.statistics['mutation_count'] + ind2.statistics['mutation_count']
                 offspring.statistics['crossover_count'] = ind1.statistics['crossover_count'] + ind2.statistics['crossover_count'] + 1
                 offspring.statistics['generation'] = 'INVALID'
-                break
 
-        return offspring, offspring2
+                return offspring, offspring2
+
+        return ind1_copy, ind2_copy
 
     @_pre_test
     def _random_mutation_operator(self, individual, allow_shrink=True):
@@ -1533,44 +1526,37 @@ class TPOTBase(BaseEstimator):
         """
         if self.tree_structure:
             mutation_techniques = [
-                partial(gp.mutInsert, pset=self._pset),
-                partial(mutNodeReplacement, pset=self._pset)
+                partial(mutInsert, pset=self._pset, clone=self._toolbox.clone),
+                partial(mutNodeReplacement, pset=self._pset, clone=self._toolbox.clone)
             ]
             # We can't shrink pipelines with only one primitive, so we only add it if we find more primitives.
             number_of_primitives = sum([isinstance(node, deap.gp.Primitive) for node in individual])
             if number_of_primitives > 1 and allow_shrink:
-                mutation_techniques.append(partial(gp.mutShrink))
+                mutation_techniques.append(partial(mutShrink, clone=self._toolbox.clone))
         else:
-            mutation_techniques = [partial(mutNodeReplacement, pset=self._pset)]
+            mutation_techniques = [partial(mutNodeReplacement, pset=self._pset, clone=self._toolbox.clone)]
 
-        mutator = np.random.choice(mutation_techniques)
+        random.shuffle(mutation_techniques)
 
-        unsuccesful_mutations = 0
-        for _ in range(self._max_mut_loops):
+        for mutator in mutation_techniques:
             # We have to clone the individual because mutator operators work in-place.
             ind = self._toolbox.clone(individual)
-            offspring, = mutator(ind)
-            if str(offspring) not in self.evaluated_individuals_:
-                # Update statistics
-                # crossover_count is kept the same as for the predecessor
-                # mutation count is increased by 1
-                # predecessor is set to the string representation of the individual before mutation
-                # generation is set to 'INVALID' such that we can recognize that it should be updated accordingly
-                offspring.statistics['crossover_count'] = individual.statistics['crossover_count']
-                offspring.statistics['mutation_count'] = individual.statistics['mutation_count'] + 1
-                offspring.statistics['predecessor'] = (str(individual),)
-                offspring.statistics['generation'] = 'INVALID'
-                break
-            else:
-                unsuccesful_mutations += 1
 
-        # Sometimes you have pipelines for which every shrunk version has already been explored too.
-        # To still mutate the individual, one of the two other mutators should be applied instead.
-        if ((unsuccesful_mutations == 50) and
-           (type(mutator) is partial and mutator.func is gp.mutShrink)):
-            offspring, = self._random_mutation_operator(individual, allow_shrink=False)
+            for offspring, _ in mutator(ind):
+                if str(offspring) not in self.evaluated_individuals_:
+                    # Update statistics
+                    # crossover_count is kept the same as for the predecessor
+                    # mutation count is increased by 1
+                    # predecessor is set to the string representation of the individual before mutation
+                    # generation is set to 'INVALID' such that we can recognize that it should be updated accordingly
+                    offspring.statistics['crossover_count'] = individual.statistics['crossover_count']
+                    offspring.statistics['mutation_count'] = individual.statistics['mutation_count'] + 1
+                    offspring.statistics['predecessor'] = (str(individual),)
+                    offspring.statistics['generation'] = 'INVALID'
 
-        return offspring,
+                    return offspring,
+
+        return None,
 
     def _gen_grow_safe(self, pset, min_, max_, type_=None):
         """Generate an expression where each leaf might have a different depth between min_ and max_.
