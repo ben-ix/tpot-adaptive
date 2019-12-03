@@ -523,6 +523,10 @@ class TPOTBase(BaseEstimator):
         # dont save periodic pipelines more often than this
         self._output_best_pipeline_period_seconds = 30
 
+        # Try crossover and mutation at most this many times for
+        # any one given individual (or pair of individuals)
+        self._max_mut_loops = 50
+
         self._setup_config(self.config_dict)
 
         self._setup_template(self.template)
@@ -1485,6 +1489,8 @@ class TPOTBase(BaseEstimator):
     def _mate_operator(self, ind1, ind2):
         ind1_copy, ind2_copy = self._toolbox.clone(ind1), self._toolbox.clone(ind2)
 
+        unsuccessful_tries = 0
+
         for offspring, offspring2 in cxOnePoint(ind1_copy, ind2_copy, self._toolbox.clone):
             if str(offspring) not in self.evaluated_individuals_:
                 # We only use the first offspring, so we do not care to check uniqueness of the second.
@@ -1500,6 +1506,11 @@ class TPOTBase(BaseEstimator):
                 offspring.statistics['generation'] = 'INVALID'
 
                 return offspring, offspring2
+
+            unsuccessful_tries += 1
+
+            if unsuccessful_tries > self._max_mut_loops:
+                break
 
         return ind1_copy, ind2_copy
 
@@ -1538,6 +1549,8 @@ class TPOTBase(BaseEstimator):
 
         random.shuffle(mutation_techniques)
 
+        unsuccessful_tries = 0
+
         for mutator in mutation_techniques:
             # We have to clone the individual because mutator operators work in-place.
             ind = self._toolbox.clone(individual)
@@ -1556,6 +1569,12 @@ class TPOTBase(BaseEstimator):
 
                     return offspring,
 
+                unsuccessful_tries += 1
+
+                if unsuccessful_tries > self._max_mut_loops:
+                    break
+
+        # Couldnt mutate to a unique ind after self._max_mut_loops
         return None,
 
     def _gen_grow_safe(self, pset, min_, max_, type_=None):

@@ -19,7 +19,6 @@ if __name__ == "__main__":
         scoring="f1_weighted",
         n_jobs=args.cores,
         random_state=0,
-        verbosity=2
     )
 
     test_scores = []
