@@ -725,13 +725,15 @@ class TPOTBase(BaseEstimator):
             if self.verbosity > 0:
                 print('{}\nTPOT closed prematurely. Will use the current best pipeline.'.format(e), file=self._file)
         except Exception as e:
-            print(e)
+            import traceback
+            print("Exception", e)
+            print(traceback.print_exc(file=sys.stdout))
+            raise e
         finally:
             # keep trying 10 times in case weird things happened like multiple CTRL+C or exceptions
             attempts = 10
             for attempt in range(attempts):
                 try:
-
                     self._update_top_pipeline()
                     self._summary_of_best_pipeline(features, target)
                     # Delete the temporary cache before exiting
@@ -742,6 +744,7 @@ class TPOTBase(BaseEstimator):
                     # raise the exception if it's our last attempt
                     if attempt == (attempts - 1):
                         raise e
+
             return self
 
 
@@ -1514,7 +1517,7 @@ class TPOTBase(BaseEstimator):
 
         return ind1_copy, ind2_copy
 
-    @_pre_test
+    #@_pre_test
     def _random_mutation_operator(self, individual, allow_shrink=True):
         """Perform a replacement, insertion, or shrink mutation on an individual.
 
@@ -1555,7 +1558,10 @@ class TPOTBase(BaseEstimator):
             # We have to clone the individual because mutator operators work in-place.
             ind = self._toolbox.clone(individual)
 
-            for offspring, _ in mutator(ind):
+            for offspring in mutator(ind):
+
+                offspring = offspring[0]
+
                 if str(offspring) not in self.evaluated_individuals_:
                     # Update statistics
                     # crossover_count is kept the same as for the predecessor

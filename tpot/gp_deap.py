@@ -100,7 +100,7 @@ def mutate_random_individual(population, toolbox):
 
     # Couldnt mutate. Return a copy
     print("Couldnt mutate")
-    return toolbox.clone(np.random.choice(population))
+    return toolbox.clone(population[0])
 
 
 def varOr(population, toolbox, lambda_, cxpb, mutpb):
@@ -355,7 +355,6 @@ def cxOnePoint(ind1, ind2, clone):
 
                 yield ind1_copy, ind1_copy
 
-
 def mutInsert(individual, pset, clone):
     """
 
@@ -379,27 +378,29 @@ def mutInsert(individual, pset, clone):
         random.shuffle(primitives)
 
         for new_node in primitives:
-            new_subtree = [None] * len(new_node.args)
             positions = [i for i, a in enumerate(new_node.args) if a == node.ret]
             random.shuffle(positions)
 
             for position in positions:
+                new_subtree_possibilities = [[None]] * len(new_node.args)
+
                 for i, arg_type in enumerate(new_node.args):
                     if i != position:
-                        terms = list(pset.terminals[arg_type])
-                        random.shuffle(terms)
+                        terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
+                        random.shuffle(terminals)
+                        new_subtree_possibilities[i] = terminals
 
-                        for term in terms:
-                            if isclass(term):
-                                term = term()
-                            new_subtree[i] = term
+                new_subtrees = itertools.product(*new_subtree_possibilities)
 
-                            new_subtree[position:position + 1] = individual[slice_]
-                            new_subtree.insert(0, new_node)
+                for new_subtree in new_subtrees:
+                    new_subtree = list(new_subtree)
 
-                            individual_copy = clone(individual)
-                            individual_copy[slice_] = new_subtree
-                            yield individual_copy,
+                    new_subtree[position:position + 1] = individual[slice_]
+                    new_subtree.insert(0, new_node)
+                    individual_clone = clone(individual)
+                    individual_clone[slice_] = new_subtree
+
+                    yield individual_clone,
 
 def mutShrink(individual, clone):
     """
@@ -410,7 +411,7 @@ def mutShrink(individual, clone):
     """
     # We don't want to "shrink" the root
     if len(individual) < 3 or individual.height <= 1:
-        return individual,
+        yield individual,
 
     iprims = []
     for i, node in enumerate(individual[1:], 1):
@@ -490,15 +491,15 @@ def mutNodeReplacement(individual, pset, clone):
 
             if rindex:
                 for new_node in primitives:
-                    new_subtree_possibilities = [None] * len(new_node.args)
                     rnode = individual[rindex]
                     rslice = individual.searchSubtree(rindex)
                     # find position for passing return values to next operator
                     positions = [i for i, a in enumerate(new_node.args) if a == rnode.ret]
-
                     random.shuffle(positions)
 
                     for position in positions:
+                        new_subtree_possibilities = [[None]] * len(new_node.args)
+
                         for i, arg_type in enumerate(new_node.args):
                             if i != position:
                                 terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
@@ -510,6 +511,8 @@ def mutNodeReplacement(individual, pset, clone):
                         new_subtrees = itertools.product(*new_subtree_possibilities)
 
                         for new_subtree in new_subtrees:
+                            new_subtree = list(new_subtree)
+
                             new_subtree[position:position + 1] = individual[rslice]
 
                             # combine with primitives
@@ -520,7 +523,7 @@ def mutNodeReplacement(individual, pset, clone):
                             yield individual_clone,
             else:
                 for new_node in primitives:
-                    new_subtree_possibilities = [None] * len(new_node.args)
+                    new_subtree_possibilities = [[None]] * len(new_node.args)
 
                     for i, arg_type in enumerate(new_node.args):
                         terminals = [term() if isclass(term) else term for term in pset.terminals[arg_type]]
@@ -530,6 +533,8 @@ def mutNodeReplacement(individual, pset, clone):
                     new_subtrees = itertools.product(*new_subtree_possibilities)
 
                     for new_subtree in new_subtrees:
+                        new_subtree = list(new_subtree)
+
                         # combine with primitives
                         new_subtree.insert(0, new_node)
                         individual_clone = clone(individual)
