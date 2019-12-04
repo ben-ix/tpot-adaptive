@@ -659,7 +659,7 @@ class TPOTBase(BaseEstimator):
             self._param_dict = {
                 # We increase pop siz in the fibonacci sequence.  0 is skipped because this doesnt make sense for a poulation size
                 'previous_sizes': [1, 1],
-                'mutpb_rates': [0.5],  # 50:50 crossover/mutation to begin with (no preference). Tracks rates overtime
+                'mutpb_rates': [1],  # Fully mutation to begin with. Cant crossover with a single individual
                 'best_individual_fitness': (-np.inf, -np.inf) # Starts of with worst seen (weighted)
             }
 

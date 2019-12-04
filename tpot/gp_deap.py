@@ -39,7 +39,6 @@ from sklearn.base import clone, is_classifier
 from collections import defaultdict
 import warnings
 from stopit import threading_timeoutable, TimeoutException
-from statistics import mean
 
 
 def pick_two_individuals_eligible_for_crossover(population):
@@ -103,22 +102,21 @@ def mutate_random_individual(population, toolbox):
     return toolbox.clone(population[0])
 
 
-def varOr(population, toolbox, lambda_, cxpb, mutpb):
+def varOr(population, toolbox, lambda_, mutpb):
     """Part of an evolutionary algorithm applying only the variation part
-    (crossover, mutation **or** reproduction). The modified individuals have
+    (crossover  **or** mutation). The modified individuals have
     their fitness invalidated. The individuals are cloned so returned
     population is independent of the input population.
     :param population: A list of individuals to vary.
     :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
                     operators.
     :param lambda\_: The number of children to produce
-    :param cxpb: The probability of mating two individuals.
     :param mutpb: The probability of mutating an individual.
     :returns: The final population
     :returns: A class:`~deap.tools.Logbook` with the statistics of the
               evolution
     The variation goes as follow. On each of the *lambda_* iteration, it
-    selects one of the three operations; crossover, mutation or reproduction.
+    selects one of the two operations; crossover, or mutation.
     In the case of a crossover, two individuals are selected at random from
     the parental population :math:`P_\mathrm{p}`, those individuals are cloned
     using the :meth:`toolbox.clone` method and then mated using the
@@ -127,20 +125,23 @@ def varOr(population, toolbox, lambda_, cxpb, mutpb):
     In the case of a mutation, one individual is selected at random from
     :math:`P_\mathrm{p}`, it is cloned and then mutated using using the
     :meth:`toolbox.mutate` method. The resulting mutant is appended to
-    :math:`P_\mathrm{o}`. In the case of a reproduction, one individual is
-    selected at random from :math:`P_\mathrm{p}`, cloned and appended to
     :math:`P_\mathrm{o}`.
     This variation is named *Or* beceause an offspring will never result from
     both operations crossover and mutation. The sum of both probabilities
-    shall be in :math:`[0, 1]`, the reproduction probability is
-    1 - *cxpb* - *mutpb*.
+    shall be in :math:`[0, 1]`, the crossover probability is
+    1 - - *mutpb*.
     """
     offspring = []
 
     for _ in range(lambda_):
         op_choice = np.random.random()
-        if op_choice < cxpb:  # Apply crossover
 
+        unique_individuals = set([str(ind) for ind in population])
+
+        if op_choice < mutpb or len(unique_individuals) == 1:  # Apply mutation
+            ind = mutate_random_individual(population, toolbox)
+            offspring.append(ind)
+        else:  # Apply crossover
             generated_offspring = False
 
             for ind1, ind2 in pick_two_individuals_eligible_for_crossover(population):
@@ -153,13 +154,6 @@ def varOr(population, toolbox, lambda_, cxpb, mutpb):
                 ind1 = mutate_random_individual(population, toolbox)
 
             offspring.append(ind1)
-
-        elif op_choice < cxpb + mutpb:  # Apply mutation
-            ind = mutate_random_individual(population, toolbox)
-            offspring.append(ind)
-        else:  # Apply reproduction
-            idx = np.random.randint(0, len(population))
-            offspring.append(toolbox.clone(population[idx]))
 
     return offspring
 
@@ -255,7 +249,7 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
         mutpb = param_dict["mutpb_rates"][-1]
 
         # Vary the population
-        offspring = varOr(population, toolbox, offspring_size, cxpb=1-mutpb, mutpb=mutpb)
+        offspring = varOr(population, toolbox, offspring_size, mutpb=mutpb)
 
         # Update generation statistic for all individuals which have invalid 'generation' stats
         # This hold for individuals that have been altered in the varOr function
@@ -298,9 +292,13 @@ def adaptiveEa(population, logbook, toolbox, param_dict, stats=None, verbose=0,
             # The maximum obeserved standard deviation
             max_std = max(logbook.chapters["fitness"].select("std"))
 
-            # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
-            # so we should have a high mutation rate.
-            mutpb = 1 - (fitness_std / max_std)
+            if max_std == 0:
+                # First run. Protect divide by zero
+                mutpb = 1
+            else:
+                # Fitness is proportional to the standard deviation. A low standard deviation means similar individuals,
+                # so we should have a high mutation rate.
+                mutpb = 1 - (fitness_std / max_std)
 
         param_dict["mutpb_rates"].append(mutpb)
 
