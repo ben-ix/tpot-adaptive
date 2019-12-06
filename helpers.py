@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pickle
 from sklearn import metrics
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 import time
 import argparse
@@ -109,7 +109,7 @@ def write_file(file, contents):
 
 def kfold_split(k, dataX, dataY, seed, num_folds):
     # 10-fold. Shuffle the data according to the fixed seed for reproducability
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
+    kf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=seed)
 
     # We only care about the Kth fold - we run each fold as different process for speed of results
     train, test = list(kf.split(dataX, dataY))[k]
@@ -120,14 +120,14 @@ def kfold_split(k, dataX, dataY, seed, num_folds):
     return train_x, train_y, test_x, test_y
 
 
-def run_kfold(k, dataX, dataY, fn_to_run, seed, classification, num_folds=2):
+def run_kfold(k, dataX, dataY, fn_to_run, seed, classification, num_folds=10):
     train_x, train_y, test_x, test_y = kfold_split(k, dataX, dataY, seed, num_folds)
 
     model, training_time_minutes, score = fn_to_run(train_x, train_y, test_x, test_y, classification)
 
     return training_time_minutes, score
 
-def train_test_split(dataset, k, seed, classification=True, num_folds=2):
+def train_test_split(dataset, k, seed, classification=True, num_folds=10):
     data_x, data_y = read_data(dataset, classification)
     return kfold_split(k, data_x, data_y, seed, num_folds)
 

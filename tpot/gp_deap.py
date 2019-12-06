@@ -86,20 +86,15 @@ def mutate_random_individual(population, toolbox):
         An individual which is a mutated copy of one of the individuals in population,
         the returned individual does not have fitness.values
     """
-    indices = list(range(len(population)))
-    random.shuffle(indices)
 
-    for idx in indices:
-        ind = population[idx]
-        ind, = toolbox.mutate(ind)
+    # Note: We dont try all possibilities here like we do with the other generators.
+    # Just choose an ind and stick to it
 
-        if ind:
-            del ind.fitness.values
-            return ind
-
-    # Couldnt mutate. Return a copy
-    print("Couldnt mutate")
-    return toolbox.clone(population[0])
+    idx = np.random.randint(0,len(population))
+    ind = population[idx]
+    ind, = toolbox.mutate(ind)
+    del ind.fitness.values
+    return ind
 
 
 def varOr(population, toolbox, lambda_, mutpb):

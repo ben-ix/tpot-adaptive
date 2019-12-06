@@ -1283,8 +1283,8 @@ class TPOTBase(BaseEstimator):
 
         """
 
-        # Evaluate all individuals since seed changes
-        individuals = [ind for ind in population if not ind.fitness.valid]
+        # Evaluate invalid indiivduals
+        individuals = [ind for ind in population if not ind.fitness.valid or np.any(np.isinf(ind.fitness.values))]
 
         operator_counts, eval_individuals_str, sklearn_pipeline_list, stats_dicts = self._preprocess_individuals(individuals)
 
@@ -1581,7 +1581,7 @@ class TPOTBase(BaseEstimator):
                     break
 
         # Couldnt mutate to a unique ind after self._max_mut_loops
-        return None,
+        return self._toolbox.clone(individual),
 
     def _gen_grow_safe(self, pset, min_, max_, type_=None):
         """Generate an expression where each leaf might have a different depth between min_ and max_.
