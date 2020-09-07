@@ -18,7 +18,7 @@ The pseudo code for adaptiveEa is
 
 ![Pesudo Code](pseudo.png)
 
-The changes for this were published in [CEC2020](https://ieeexplore.ieee.org/document/9185770/), a preprint is available on [Arxiv](https://arxiv.org/pdf/2001.10178.pdf)
+Technical details for this were published in [CEC2020](https://ieeexplore.ieee.org/document/9185770/), a preprint is available on [Arxiv](https://arxiv.org/pdf/2001.10178.pdf)
 
 To cite, please use
 
