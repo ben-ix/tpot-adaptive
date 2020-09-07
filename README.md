@@ -11,8 +11,12 @@ Specificially, the population begins as a single randomly chosen estimator, and 
 - Reproduction Rate
 
 The goal is towards further automation in AutoML.
-The main changes can be found in [adaptiveEa](https://github.com/ben-ix/tpot-adaptive/blob/master/tpot/gp_deap.py#L178)
+The main changes can be found in [adaptiveEa](https://github.com/ben-ix/tpot-adaptive/blob/master/tpot/gp_deap.py#L178), which is 
+the function which drives the evolutionary process. 
 
+The pseudo code for adaptiveEa is
+
+![Pesudo Code](pseudo.png)
 
 The changes for this were published in [CEC2020](https://ieeexplore.ieee.org/document/9185770/), a preprint is available on [Arxiv](https://arxiv.org/pdf/2001.10178.pdf)
 
